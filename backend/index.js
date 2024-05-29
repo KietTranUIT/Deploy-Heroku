@@ -32,10 +32,6 @@ mongoose.connect(process.env.MONGO_URI)
     console.error('Connect to mongodb failed!', error);
     });
 
-app.get('/', (req, res) => {
-    res.send('Hello World!')
-})
-
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(

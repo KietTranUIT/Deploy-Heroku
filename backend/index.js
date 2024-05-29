@@ -3,6 +3,7 @@ const fileUpload = require("express-fileupload")
 const app = express();
 const mongoose = require("mongoose");
 const cors = require("cors");
+const path = require('path');
 
 const userRoutes = require("./routes/user")
 const uploadRoutes = require("./routes/upload")

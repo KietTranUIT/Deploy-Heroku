@@ -14,7 +14,7 @@ const Port = process.env.PORT || 5000;
 
 app.use(
     cors({
-      origin: ["http://localhost:8181", "http://localhost:3000"],
+      origin: '*',
       //origin: ["https://allblogwebsiteapi.onrender.com", "https://allblogapp-project.vercel.app"],
       methods: "GET,POST,PUT,DELETE",
       credentials: true,

@@ -8,6 +8,7 @@ const path = require('path');
 const userRoutes = require("./routes/user")
 const uploadRoutes = require("./routes/upload")
 const postRoutes = require("./routes/post")
+const {contentSecurityPolicy} = require("./middleware/csp")
 
 
 //require('dotenv').config();
@@ -21,6 +22,8 @@ app.use(
       credentials: true,
     })
 );
+
+app.use(contentSecurityPolicy)
 
 // Kết nối đến mongodb
 mongoose.set("strictQuery", false);

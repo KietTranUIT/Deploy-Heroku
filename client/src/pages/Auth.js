@@ -64,6 +64,7 @@ function Auth() {
         }
       } else {
         signUp();
+        scs(true);
       }
     }
 };
@@ -86,7 +87,7 @@ const logIn = async () => {
       setSuccess("Success !")
       setTimeout(() => {
         dispatch({ type: "LOGIN", payload: data });
-        const expires = new Date(new Date().getTime() + 3600);
+        const expires = new Date(new Date().getTime() + (60*60*1000));
         Cookies.set("user", JSON.stringify(data), { expires });
         navigate("/");
       }, 2000);
@@ -113,7 +114,7 @@ const logIn = async () => {
       const { message, ...rest } = data;
       setTimeout(() => {
         dispatch({ type: "LOGIN", payload: rest });
-        Cookies.set("user", JSON.stringify(rest), { expires: 15 });
+        Cookies.set("user", JSON.stringify(rest), { expires: 1/24 });
         navigate("/");
       }, 2000);
     } catch (error) {

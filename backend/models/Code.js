@@ -8,7 +8,7 @@ const codeSchema = new mongoose.Schema({
     required: true,
   },
   url: {
-    type: string,
+    type: String,
     required: true,
   },
   email: {

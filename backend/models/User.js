@@ -14,7 +14,7 @@ const userSchema = new Schema(
       required: function () { return !this.googleId },
     },
     status:{
-      type:Boolean,
+      type:String,
       enum: ["active", "lock"]
     },
     isAdmin: {

@@ -1,38 +1,317 @@
 const { validateEmail, validateLength, validatePassword } = require("../helper/validation");
-const { generateToken } = require("../helper/token");
+const { generateToken, randomToken } = require("../helper/token");
 const generateCode = require("../helper/gencode")
 const {sendResetCode, sendRegisterCode} = require("../helper/mail")
 const User = require("../models/User");
 const Post = require("../models/Post");
 const Blockip = require("../models/Blockip")
 const Blacklist = require("../models/Blacklist")
+const Code = require("../models/Code")
 const FailedLogin = require("../models/FailedLogin")
 const Verification = require("../models/Verification")
 const bcrypt = require("bcrypt");
+const speakeasy = require('speakeasy')
+const QRCode = require('qrcode')
+const {sendQRimage} = require('../helper/qr')
+const {sendDashBoard, sendLoginPage, sendRegisterPage, sendResetPasswordPage} = require('../helper/admin');
+const { VirtualType } = require("mongoose");
 
-exports.sendOTP = async(req, res) => {
+// hàm xử lí lock và active cho một user
+exports.manageUser = async(req, res) => {
   try {
-    const {mail, name} = req.body
+    const user_id = req.user.id
+    const userAdmin = await User.findOne({_id: user_id})
+    
+    // kiểm tra đây có đúng là user admin không
+    if (!userAdmin.isAdmin) {
+      return res.status(403).json({msg: 'permission denied'})
+    }
+
+    const {id, type} = req.body
+    
+    var user = await User.findOne({_id:id})
+    if (type === "lock") {
+      if (user.status === "lock") {
+        return res.status(400).json({msg: 'user is locked'})
+      }
+      user.status = 'lock'
+
+      var posts = await Post.find({user: id})
+      for (var i=0; i<posts.length; i++) {
+        posts[i].status = 'lock'
+        posts[i].save()
+      }
+    }
+
+    if (type === "active") {
+      if (user.status === "active") {
+        return res.status(400).json({msg: 'user is actived'})
+      }
+      user.status = 'active'
+
+      var posts = await Post.find({user: id})
+      for (var i=0; i<posts.length; i++) {
+        posts[i].status = 'active'
+        posts[i].save()
+      }
+    }
+    user.save()
+    return res.status(200).json({msg:'ok'})
+  } catch(error) {
+    console.log(error)
+    return res.status(500).json({msg: 'Internal Server'})
+  }
+}
+
+// hàm trả về trang chủ admin
+exports.adminDashBoard = async(req, res) => {
+  try {
+    const user_admin = await User.findOne({_id: req.user.id})
+    if (!user_admin.isAdmin) {
+      return res.status(403).json({msg: 'permission denied'})
+    }
+
+    const users = await User.find({isAdmin: false})
+    const posts = await Post.find()
+    await Promise.all(
+      posts.map((post) => post.populate("user", "email"))
+    );
+    const html = sendDashBoard(users, posts)
+    res.send(html)
+  } catch(error) {
+    return res.status(500)
+  }
+}
+
+// trả về trang đăng nhập cho admin
+exports.getLoginPage = async(req, res) => {
+  try {
+    const html = sendLoginPage()
+    res.send(html)
+  } catch(error) {
+    return res.status(500)
+  }
+}
+
+// tạo xác thực 2 lớp
+exports.verifyTOTP = async(req, res) => {
+  try {
+    const { email, otp } = req.body
+    var user = await User.findOne({email: email})
+    if (!user) {
+      res.status(400).json({msg: "email not exist"})
+    }
+
+    if (user.isVerify) {
+      res.status(403).json({msg: "permission denied"})
+    }
+
+    const data = await Code.findOne({email: email})
+
+    const verified = speakeasy.totp.verify({
+      secret: data.secret,
+      encoding: 'base32',
+      token: otp
+    })
+
+    if (!verified) {
+      return res.status(400).json({msg: 'otp invalid'})
+    }
+    user.isVerify = true
+    user.secret = data.secret
+
+    await Code.deleteOne({email: email})
+    user.save()
+    return res.status(200).json({msg: 'ok'})
+  } catch(error) {
+    res.status(500)
+  }
+}
+
+// tạo ra mã QR để quét trên ứng dụng google authenticator
+exports.generateQR = async(req, res) => {
+  try {
+    const { email } = req.params
+    var user = await User.findOne({email: email})
+    if (!user) {
+      res.status(400).json({msg: "email not exist"})
+    }
+
+    if (user.isVerify) {
+      res.status(403).json({msg: "permission denied"})
+    }
+
+    const data = await Code.findOne({email: email})
+    var secret
+    if (!data) {
+      const new_secret = speakeasy.generateSecret({length: 20})
+      const mini_db = await new Code({
+        email:email,
+        secret: new_secret.base32,
+        url: new_secret.otpauth_url
+      }).save();
+      secret = new_secret.otpauth_url
+    } else {
+      secret = data.url
+    }
+
+    QRCode.toDataURL(secret, (err, imageUrl) => {
+      if (err) {
+        console.error('Error generating QR code:', err);
+        return;
+      }
+      const qrcode = sendQRimage(imageUrl,email)
+      
+      res.send(qrcode)
+
+    })
+  } catch(error) {
+    res.status(500)
+  }
+}
+
+exports.getResetPasswordPage = async(req, res) => {
+  try {
+    const {email, token} = req.query
+
+    const verifies = await Verification.find({
+      $and: [
+        {mail: email},
+        {target: 'forgotpassword'}
+      ]
+    });
+    
+    if (verifies.length <= 0) {
+      return res.status(403).json({msg: "permission denied"})
+    }
+
+    var flag = false
+    for(var i=0; i<verifies.length; i++) {
+      const check = await bcrypt.compare(token, verifies[i].token)
+      if(check) {
+        flag = true
+        break
+      }
+    }
+    if (!flag) {
+      return res.status(403).json({msg: "permission denied"})
+    }
+    
+    res.send(sendResetPasswordPage(email, token))
+  } catch(error) {
+    return res.status(500).json({msg: error.message})
+  }
+}
+
+exports.getRegisterPage = async(req, res) => {
+  try {
+    const {email, token} = req.query
+
+    const verifies = await Verification.find({
+      $and: [
+        {mail: email},
+        {target: 'signup'}
+      ]
+    });
+    
+    if (verifies.length <= 0) {
+      return res.status(403).json({msg: "permission denied"})
+    }
+
+    var flag = false
+    for(var i=0; i<verifies.length; i++) {
+      const check = await bcrypt.compare(token, verifies[i].token)
+      if(check) {
+        flag = true
+        break
+      }
+    }
+    if (!flag) {
+      return res.status(403).json({msg: "permission denied"})
+    }
+    
+    res.send(sendRegisterPage(email, token))
+  } catch(error) {
+    return res.status(500).json({msg: error.message})
+  }
+}
+
+exports.sendTokenResetPassword = async(req, res) => {
+  try {
+    const {email} = req.params
+    // if (!validateEmail(email)) {
+    //   return res.status(400).json({msg: "Please enter a valid email !"})
+    // }
+
+    const check = await User.findOne({ email: email });
+    if (!check) {
+      return res.status(400).json({
+        msg:
+        "This email not exists",
+      });
+    }
+
+    // if (!check.isVerify || check.status === 'lock') {
+    //   return res.status(403).json({msg: "permission denied"})
+    // }
+
+    const verifies = await Verification.find({
+      $and: [
+        {mail: email},
+        {target: 'forgotpassword'}
+      ]
+    });
+    if(verifies.length >= 5) {
+      return res.status(400).json({msg: "The number of Token requests exceeds the limit"})
+    }
+
+    const code = randomToken(32);
+    const hashed_code = await bcrypt.hash(code, 10);
+    const savedToken = await new Verification({
+      mail: email,
+      token: hashed_code,
+      target: 'forgotpassword',
+    }).save();
+
+    sendResetCode(email, check.name, code)
+    return res.status(200).json({msg: 'ok'})
+  } catch(error) {
+    return res.status(500).json({msg: error.message})
+  }
+}
+
+exports.sendToken = async(req, res) => {
+  try {
+    const {mail, name, target} = req.body
     if (!validateEmail(mail)) {
       return res.status(400).json({msg: "Please enter a valid email !"})
     }
 
+    const check = await User.findOne({ email: mail });
+      if (check) {
+        return res.status(400).json({
+          msg:
+          "This email already exists,try again with a different email",
+        });
+      }
+
     const verifies = await Verification.find({
       $and: [
         {mail: mail},
-        {target: 'signup'}
+        {target: target}
       ]
     });
     if(verifies.length >= 5) {
-      return res.status(400).json({msg: "The number of OTP requests exceeds the limit"})
+      return res.status(400).json({msg: "The number of Token requests exceeds the limit"})
     }
 
-    const code = generateCode(6);
+    const code = randomToken(32);
     const hashed_code = await bcrypt.hash(code, 10);
-    const savedOTP = await new Verification({
+    const savedToken = await new Verification({
       mail: mail,
-      otp: hashed_code,
-      target: 'signup'
+      token: hashed_code,
+      target: target,
+      name: name
     }).save();
 
     sendRegisterCode(mail, name, code)
@@ -44,299 +323,307 @@ exports.sendOTP = async(req, res) => {
 
 // hàm register xử lí các request đăng kí từ client
 exports.register = async (req, res) => {
-    try {
-      const { name, temail, password } = req.body;
-      if (!validateLength(name, 6, 15)) {
-        return res
-        .status(400)
-        .json({ message: "Enter name between 6 to 15 characters !" });
-      }
-      if (!validateEmail(temail)) {
-        return res.status(400).json({ message: "Please enter a valid email !" });
-      }
-      
-      if (!validatePassword(password, 8)) {
-        return res
-        .status(400)
-        .json({ message: "Weak password" });
-      }
-      
-      // kiểm tra xem email đăng kí đã tồn tại hay chưa
-      const check = await User.findOne({ email: temail });
-      if (check) {
-        return res.status(400).json({
-          message:
-          "This email already exists,try again with a different email",
-        });
-      }
-
-      const verifies = await Verification.find({
-        $and: [
-          {mail: temail},
-          {target: 'signup'}
-        ]
-      });
-
-      if(verifies.length <= 0) {
-        return res.status(400).json({
-          message:"Email has not been verified"
-        })
-      }
-      var flag = false
-      for(var i=0; i<verifies.length; i++) {
-        if(verifies[i].isVerify) {
-          flag=true
-          break
-        }
-      }
-
-      if(!flag) {
-        return res.status(400).json({
-          message:"Email has not been verified"
-        })
-      }
-
-      const hashed_password = await bcrypt.hash(password, 10);
-      const user = await new User({
-        name:name,
-        email:temail,
-        password: hashed_password,
-        verify: true
-      }).save();
-      await Verification.deleteMany({
-        $and: [
-          {mail: temail},
-          {target: 'signup'}
-        ]
-      });
-      const token = generateToken({ id: user._id.toString() }, "1h");
-      res.cookie('bearer', token, {
-        httpOnly: false,
-        secure: false,
-        sameSite: 'Strict',
-        maxAge: 3600000,  // 1 giờ
-      });
-      res.send({
-        id: user._id,
-        name: user.name,
-        picture: user.picture,
-        message: "Register Success !",
-      });
-    } catch (error) {
-      console.log(error);
-      return res.status(500).json({ message: error.message });
+  try {
+    const {password, confirm_password, email, token} = req.body;
+    const verifies = await Verification.find({
+      $and: [
+        {mail: email},
+        {target: 'signup'}
+      ]
+    });
+    if (verifies.length <= 0) {
+      return res.status(403).json({message: "permission denied"})
     }
+
+    var flag = false
+    var name = ''
+    for(var i=0;i<verifies.length;i++) {
+      const check = await bcrypt.compare(token, verifies[i].token)
+      if(check) {
+        name = verifies[i].name
+        flag = true
+        break
+      }
+    }
+
+    if (!flag) {
+      return res.status(403).json({message: "permission denied"})
+    }
+    
+    if (password != confirm_password) {
+      return res.status(400).json({message: "password and confirm password do not match"})
+    }
+
+    if (!validatePassword(password, 8)) {
+      return res
+      .status(400)
+      .json({ message: "Weak password" });
+    }
+
+    const hashed_password = await bcrypt.hash(password, 10);
+    const user = await new User({
+      name:name,
+      email:email,
+      password: hashed_password,
+      status: 'active'
+    }).save();
+    await Verification.deleteMany({
+      $and: [
+        {mail: email},
+        {target: 'signup'}
+      ]
+    });
+    return res.status(200).json({message: 'ok'})
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ message: error.message });
+  }
 };
 
 // hàm login xử lí các request đăng nhập từ phía client
 exports.login = async (req, res) => {
-    try {
-      const { temail, password } = req.body;
-      const ip = req.connection.remoteAddress
-      const blockip = await Blockip.findOne({
-        $and: [
-          {email: temail},
-          {ipAddress: ip}
-        ]
-      })
+  try {
+    const { temail, password, otp} = req.body;
+    const ip = req.connection.remoteAddress
+    const blockip = await Blockip.findOne({
+      $and: [
+        {email: temail},
+        {ipAddress: ip}
+      ]
+    })
 
-      if (blockip) {
-        return res.status(400).json({message: "IP address temporarily blocked. Please come back later!"})
-      }
+    if (blockip) {
+      return res.status(403).json({message: "IP address temporarily blocked. Please come back later!"})
+    }
 
-      const user = await User.findOne({ email:temail });
-      if (!user) {
-        return res.status(400).json({
-          message:
-            "the email you entered is not registered.",
-        });
-      }
-      const check = await bcrypt.compare(password, user.password);
-      if (!check) {
-        var failed = await FailedLogin.findOne({$and: [
-          {email: temail},
-          {ipAddress: ip}
-        ]})
+    const user = await User.findOne({ email:temail });
+    if (!user) {
+      return res.status(400).json({
+        message:
+          "the email you entered is not registered.",
+      });
+    }
 
-        if (!failed) {
-          failed = await new FailedLogin({
+    if (!user.isVerify) {
+      return res.status(403).json({message: "user not verify 2fa"})
+    }
+
+    if (user.status === "lock") {
+      return res.status(403).json({message: "user is locked"})
+    }
+    
+    const check = await bcrypt.compare(password, user.password);
+    if (!check) {
+      var failed = await FailedLogin.findOne({$and: [
+        {email: temail},
+        {ipAddress: ip}
+      ]})
+
+      if (!failed) {
+        failed = await new FailedLogin({
+          email: temail,
+          ipAddress: ip
+        }).save()
+      } else {
+        failed.count = failed.count + 1
+        if (failed.count > 5) {
+          const block_ip = await new Blockip({
             email: temail,
             ipAddress: ip
           }).save()
-        } else {
-          failed.count = failed.count + 1
-          if (failed.count > 5) {
-            const block_ip = await new Blockip({
-              email: temail,
-              ipAddress: ip
-            }).save()
 
-            await FailedLogin.deleteOne({
-              $and: [
-                {email: temail},
-                {ipAddress: ip}
-              ]
-            })
-          }
+          await FailedLogin.deleteOne({
+            $and: [
+              {email: temail},
+              {ipAddress: ip}
+            ]
+          })
         }
-
-        return res.status(400).json({
-          message: "Invalid Credentials. Please Try Again.",
-        });
       }
-      const token = generateToken({ id: user._id.toString() }, "15h");
-      res.cookie('bearer', token, {
-        httpOnly: false,
-        secure: false,
-        sameSite: 'Strict',
-        maxAge: 3600000,  // 1 giờ
-    });
-      res.send({
-        id: user._id,
-        name: user.name,
-        picture: user.picture,
+
+      return res.status(400).json({
+        message: "Invalid Credentials. Please Try Again.",
       });
-    } catch (error) {
-      console.log(error);
-      res.status(500).json({ message: "Internal Server Error" });
     }
-  };
+
+    const verified = speakeasy.totp.verify({
+      secret: user.secret,
+      encoding: 'base32',
+      token: otp
+    })
+
+    if (!verified) {
+      return res.status(400).json({message: 'Invalid Credentials. Please Try Again.'})
+    }
+
+    const token = generateToken({ id: user._id.toString() }, "24h");
+    res.cookie('bearer', token, {
+      httpOnly: false,
+      secure: false,
+      sameSite: 'Strict',
+      maxAge: 86400000,
+  });
+    res.send({
+      id: user._id,
+      name: user.name,
+      picture: user.picture,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
 
 // Xử lí yêu cầu đăng xuất từ client
 exports.logout = async(req, res) => {
-    try {
-      console.log(req.token)
-      if (!req.token) {
-        return res.status(500).json({ message: 'Internal Server' });
-      }
-        // req.logout((err) => {
-        //   if (err) {
-        //     return res.status(400).json("Couldn't logout");
-        //   }
-        // });
-        res.cookie('session', '', { expires: new Date(0), });
-        res.cookie('bearer', '', {
-          httpOnly: true,
-          secure: true,
-          sameSite: 'Strict',
-          expires: new Date(0)  // Thiết lập thời gian hết hạn về quá khứ để xóa cookie
-      });
-        res.clearCookie("sessionId");
-        const list = await new Blacklist({
-          token: req.token,
-        }).save()
-        res.status(200).json({ success: true });
-      } catch (error) {
-        return res.status(500).json({ message: error.message });
-      }
-}
-
-exports.verifycode=async(req,res)=>{
-
   try {
-      const {mail, otp, intent}=req.body
-      const data=await Verification.find({
-        $and: [
-          {mail: mail},
-          {target: intent}
-        ]
-      });
-
-      if(data.length === 0) {
-        return res.status(400).json({msg:"not found"})
-      }
-
-      for(var i=0; i<data.length; i++) {
-        let check = await bcrypt.compare(otp, data[i].otp)
-        if(check) {
-          data[i].isVerify = true;
-          data[i].save();
-          return res.status(200).json({msg: "ok"})
-        }
-      }
-      return res.status(400).json({msg: "not"})
-  } catch (error) {
-      return res.status(400).json({msg:error.message});
-  }
+    console.log(req.token)
+    if (!req.token) {
+      return res.status(500).json({ message: 'Internal Server' });
+    }
+      // req.logout((err) => {
+      //   if (err) {
+      //     return res.status(400).json("Couldn't logout");
+      //   }
+      // });
+      res.cookie('session', '', { expires: new Date(0), });
+      res.cookie('bearer', '', {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Strict',
+        expires: new Date(0)  // Thiết lập thời gian hết hạn về quá khứ để xóa cookie
+    });
+      res.clearCookie("sessionId");
+      const list = await new Blacklist({
+        token: req.token,
+      }).save()
+      res.status(200).json({ success: true });
+    } catch (error) {
+      return res.status(500).json({ message: error.message });
+    }
 }
+
+// exports.verifycode=async(req,res)=>{
+//   try {
+//       const {mail, otp, intent}=req.body
+//       const data=await Verification.find({
+//         $and: [
+//           {mail: mail},
+//           {target: intent}
+//         ]
+//       });
+
+//       if(data.length === 0) {
+//         return res.status(400).json({msg:"not found"})
+//       }
+
+//       for(var i=0; i<data.length; i++) {
+//         let check = await bcrypt.compare(otp, data[i].otp)
+//         if(check) {
+//           data[i].isVerify = true;
+//           data[i].save();
+//           return res.status(200).json({msg: "ok"})
+//         }
+//       }
+//       return res.status(400).json({msg: "not"})
+//   } catch (error) {
+//       return res.status(400).json({msg:error.message});
+//   }
+// }
 
 // Xử lí yêu cầu quên mật khảu và gửi mã xác thực về mail client
-exports.forgotPassword = async (req, res) => {
-    try {
-      const { email } = req.body;
-      const user = await User.findOne({ email });
-      if (!user) {
-        return res.status(400).json({msg: 'User not found'})
-      }
+// exports.forgotPassword = async (req, res) => {
+//     try {
+//       const { email } = req.body;
+//       const user = await User.findOne({ email });
+//       if (!user) {
+//         return res.status(400).json({msg: 'User not found'})
+//       }
 
-      const verifies = await Verification.find({
-        $and: [
-          {mail: email},
-          {target: 'forgotpassword'}
-        ]
-      });
+//       const verifies = await Verification.find({
+//         $and: [
+//           {mail: email},
+//           {target: 'forgotpassword'}
+//         ]
+//       });
 
-      if (verifies.length >= 5) {
-        return res.status(400).json({msg: "The number of OTP requests exceeds the limit"})
-      }
+//       if (verifies.length >= 5) {
+//         return res.status(400).json({msg: "The number of OTP requests exceeds the limit"})
+//       }
 
-      const code = generateCode(6);
-      const hashed_code = await bcrypt.hash(code, 10);
-      const savedOTP = await new Verification({
-        mail: email,
-        otp: hashed_code,
-        target: 'forgotpassword'
-      }).save();
+//       const code = generateCode(6);
+//       const hashed_code = await bcrypt.hash(code, 10);
+//       const savedOTP = await new Verification({
+//         mail: email,
+//         otp: hashed_code,
+//         target: 'forgotpassword'
+//       }).save();
 
-      sendResetCode(user.email, user.name, code);
-      return res.status(200).json({
-        msg: "Email reset code has been sent to your email",
-      });
-    } catch (error) {
-      res.status(500).json({ msg: error.message });
-    }
-};
+//       sendResetCode(user.email, user.name, code);
+//       return res.status(200).json({
+//         msg: "Email reset code has been sent to your email",
+//       });
+//     } catch (error) {
+//       res.status(500).json({ msg: error.message });
+//     }
+// };
+
 
 // Xử lí reset mật khẩu cho client
 exports.resetPassword = async (req, res) => {
-    try {
-      const { email, password } = req.body;
-      const verify = await Verification.find({mail: email});
-      if (verify.length === 0) {
-        return res.status(400).json({msg: "not"})
-      }
-
-      var isVerify = false;
-      for(var i=0; i<verify.length; i++) {
-        if(verify[i].isVerify === true) {
-          isVerify = true;
-          break;
-        }
-      }
-
-      if (!isVerify) {
-        return res.status(400).json({msg: "not"})
-      }
-
-      const user = await User.findOne({ email });
-
-      if (!validatePassword(password, 8)) {
-        return res
-        .status(400)
-        .json({ message: "Weak password" });
-      }
-
-      const hashed_password = await bcrypt.hash(password, 10);
-      await User.updateOne({email: email}, {
-        $set:
-        {password: hashed_password}
-    })
-      await Verification.deleteMany({mail: email});
-      return res.status(200).json({ message: "ok" });
-    } catch (error) {
-      res.status(500).json({ message: error.message });
+  try {
+    const { password, confirm_password, email, token, otp} = req.body;
+    const verify = await Verification.find({mail: email});
+    if (verify.length === 0) {
+      return res.status(403).json({message: "permission denied"})
     }
-  };
+
+    var isVerify = false;
+    for(var i=0; i<verify.length; i++) {
+      const check = bcrypt.compare(token, verify[i].token)
+      if(check) {
+        isVerify = true;
+        break;
+      }
+    }
+
+    if (!isVerify) {
+      return res.status(403).json({message: "permission denied"})
+    }
+
+    if (password != confirm_password) {
+      return res.status(400).json({message: "password not match confirm password"})
+    }
+    if (!validatePassword(password, 8)) {
+      return res
+      .status(400)
+      .json({ message: "Weak password" });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({message: "user not found"})
+    }
+
+    const verified = speakeasy.totp.verify({
+      secret: user.secret,
+      encoding: 'base32',
+      token: otp
+    })
+    if (!verified) {
+      return res.status(403).json({message: "permission denied"})
+    }
+
+    const hashed_password = await bcrypt.hash(password, 10);
+    await User.updateOne({email: email}, {
+      $set:
+      {password: hashed_password}
+  })
+    await Verification.deleteMany({mail: email});
+    return res.status(200).json({ message: "ok" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
 
 exports.bookmark = async (req, res) => {
     try {
@@ -488,11 +775,8 @@ exports.checkBookmark = async (req, res) => {
 };
 
 exports.getMyPost = async (req, res) => {
-  console.log("OK")
-
     try {
       const id= req.user.id;
-      console.log(id)
       const data = await User.findById(id)
   
       var arr = data.posts;
@@ -543,7 +827,10 @@ exports.follow = async (req, res) => {
       }
       const user = await User.findById(id);
       const user2 = await User.findById(id2);
-  
+      if (user2.status === 'lock') {
+        return res.status(403).json({msg: "user is blocked"})
+      }
+
       var mm = user2.followerscount;
       mm = mm + 1;
       user2.followerscount = mm;
@@ -587,6 +874,10 @@ exports.unfollow = async (req, res) => {
       }
       const user = await User.findById(id);
       const user2 = await User.findById(id2);
+
+      if (user2.status === 'lock') {
+        return res.status(403).json({msg: "user is blocked"})
+      }
 
       var mm = user2.followerscount
       if (mm - 1 < 0) {
@@ -660,7 +951,10 @@ exports.search = async (req, res) => {
         {"tech":{ $regex: `${q}`, $options: 'i' }},
         {"title": { $regex: `${q}`, $options: 'i' } },
         {"description": { $regex: `${q}`, $options: 'i' }}
-      ]});
+      ], 
+      $and: [
+        {"status": "active"}
+    ]});
 
     await Promise.all(
         data.map((post) => post.populate("user", "name picture about"))
@@ -686,6 +980,7 @@ exports.followercount = async (req, res) => {
     return res.status(400).json({ msg: "error in followcount" });
   }
 }
+
 exports.followingcount = async (req, res) => {
   try {
     const { id } = req.body;
@@ -726,6 +1021,9 @@ exports.fetchfollowing = async (req, res) => {
   try {
     const id = req.user.id;
     const user = await User.findById(id);
+    if (user.status === 'lock') {
+      return res.status(403).json({msg: 'user is locked'})
+    }
     const arr = user.following;
     const resp = [];
     var name = "";

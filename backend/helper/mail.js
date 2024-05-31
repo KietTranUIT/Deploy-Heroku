@@ -44,10 +44,11 @@ exports.sendResetCode = (email, name, code) => {
         style="padding:20px 0"
       >
         <span style="padding:1.5rem 0">
-          To change your password copy the code below and paste it to the confirmation box
+          To change your password click the code below
         </span>
       </div>
       <a 
+        href=${process.env.REACT_APP_BACKEND_URL}/account/reset?email=${email}&token=${code}
         style="width:200px;
         padding:10px 15px;
         background:#4c649b;
@@ -55,7 +56,7 @@ exports.sendResetCode = (email, name, code) => {
         text-decoration:none;
         font-weight:600"
       >
-        ${code}
+        Click Here
       </a>
       <br>
       <div style="padding-top:20px">
@@ -83,7 +84,7 @@ exports.sendRegisterCode = (email, name, code) => {
   const mailOptions = {
     from: "kiettrana1b2@gmail.com",
     to: email,
-    subject: "Blogs-Forgot password varification code",
+    subject: "Blogs-Forgot password verification token",
     html: `<div 
       style=
       "max-width:700px;
@@ -115,10 +116,11 @@ exports.sendRegisterCode = (email, name, code) => {
         style="padding:20px 0"
       >
         <span style="padding:1.5rem 0">
-          To register accout copy the code below and paste it to the confirmation box
+          To register accout click the code below to create account
         </span>
       </div>
       <a 
+        href=${process.env.REACT_APP_BACKEND_URL}/account/accept?email=${email}&token=${code}
         style="width:200px;
         padding:10px 15px;
         background:#4c649b;
@@ -126,7 +128,7 @@ exports.sendRegisterCode = (email, name, code) => {
         text-decoration:none;
         font-weight:600"
       >
-        ${code}
+        Click Here
       </a>
       <br>
       <div style="padding-top:20px">

@@ -21,6 +21,11 @@ const postSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    status: {
+      type: String,
+      enum: ["active", "lock"],
+      default: "active"
+    },
     user: {
       type: ObjectId,
       ref: "User",

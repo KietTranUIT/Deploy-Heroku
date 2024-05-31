@@ -3,13 +3,16 @@ const mongoose = require("mongoose");
 const { ObjectId } = mongoose.Schema;
 
 const codeSchema = new mongoose.Schema({
-  code: {
+  secret: {
     type: String,
     required: true,
   },
-  user: {
-    type: ObjectId,
-    ref: "User",
+  url: {
+    type: string,
+    required: true,
+  },
+  email: {
+    type: String,
     required: true,
   },
 });

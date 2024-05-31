@@ -4,18 +4,19 @@ const UserSchema = new mongoose.Schema({
     mail: {
         type: String,
         minlength: 3,
+        required: true
     },
-    isVerify: {
-        type: Boolean,
-        default:false,
+    name: {
+        type: String
     },
     target: {
         type: String,
         required: true,
         enum: ["signup", "forgotpassword"]
     },
-    otp:{
+    token:{
         type:String,
+        require: true
     }
 },
     { timestamps: true })

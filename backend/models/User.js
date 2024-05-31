@@ -13,13 +13,20 @@ const userSchema = new Schema(
       type: String,
       required: function () { return !this.googleId },
     },
-    verify:{
+    status:{
       type:Boolean,
-      default:false
+      enum: ["active", "lock"]
     },
-    googleId: {
+    isAdmin: {
+      type: Boolean,
+      default: false
+    },
+    isVerify: {
+      type: Boolean,
+      default: false
+    },
+    secret: {
       type: String,
-      required: function () { return !this.password },
     },
     picture: {
       type: String,

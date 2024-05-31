@@ -33,10 +33,12 @@ export const sendVerifyOTP = async (mail, otp, intent) => {
 }
 export const sendmail = async (mail, name) => {
   try {
+    const target = 'signup'
     const { data } = await axios.post(
       `${process.env.REACT_APP_BACKEND_URL}/sendmail`, {
       mail,
-      name
+      name,
+      target
     }
     )
     return data;

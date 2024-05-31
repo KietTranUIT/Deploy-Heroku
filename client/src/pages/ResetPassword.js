@@ -35,7 +35,7 @@ function ResetPassword() {
   const forgotPassword = async () => {
     try {
       const { data } = await axios.post(
-        `${process.env.REACT_APP_BACKEND_URL}/forgotpassword`, { email: email });
+        `${process.env.REACT_APP_BACKEND_URL}/account/reset/${email}`);
       if(data.msg === "User not found") {
         setFoundsend(false);
         alert("User not found!");
@@ -106,35 +106,7 @@ function ResetPassword() {
         Send code
       </button>
       <div className={`${foundsend ? "" : "hidden"}`}>
-        <form className="">
-          <label htmlFor="email-input">Code Has been Sent to your email</label>
-          <input
-            type="text"
-            // id="email-input"
-            value={code}
-            placeholder="CODE"
-
-            onChange={e => { setcode(e.target.value) }}
-            className="user-search-input"
-          />
-          <button onClick={validate} >Verify</button>
-
-        </form>
-      </div>
-      <div className={`${open ? "" : "hidden"}`}>
-        <form className="">
-          <label htmlFor="email-input">Enter Your new Password</label>
-          <input
-            type="password"
-            // id="email-input"
-            value={pass}
-            placeholder="NEW PASSWORD"
-            onChange={e => { setpass(e.target.value) }}
-            className="user-search-input"
-          />
-          <button onClick={e => changep(e)} >Confirm</button>
-
-        </form>
+      <label htmlFor="email-input">Code Has been Sent to your email</label>
       </div>
     </div>
   );

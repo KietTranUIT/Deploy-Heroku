@@ -24,10 +24,11 @@ function Auth() {
     email: "",
     password: "",
     name: "",
+    otp: "",
   };
 
   const [user, setUser] = useState(userInfos);
-  const { email, password, name } = user;
+  const { email, password, name, otp } = user;
 
   const handleRegisterChange = (e) => {
     const { name, value } = e.target;
@@ -39,7 +40,7 @@ function Auth() {
 
     if (state === "Log In") {
       try {
-        if (!temail || !password) {
+        if (!temail || !password || !otp) {
           setError('All feilds are required !')
           return;
         }
@@ -48,36 +49,32 @@ function Auth() {
       }
       logIn();
     } else {
-      if (!name || !temail || !password) {
+      if (!name || !temail) {
         setError('All feilds are required !')
         return;
       }
 
-      if(vo===false){
-        const datas=await sendmail(temail,name);
-        if(datas.msg === 'ok') {
-          setError('An OTP has been send to your mail for verification')
-          scs(true);
-          svo(true)
-        } else {
-          setError('Failed send OTP to email!')
-        }
+      const datas=await sendmail(temail,name);
+      if(datas.msg === 'ok') {
+        setError('Verification code has been sent, please check your email!')
       } else {
-        signUp();
-        scs(true);
+        setError('Sending authentication code failed!')
       }
+        //signUp();
     }
 };
 
 // Hàm tạo một request /login
 const logIn = async () => {
     try {
+    console.log(otp)
     var temail=email.toLowerCase()
       const { data } = await axios.post(
         `${process.env.REACT_APP_BACKEND_URL}/login`,
         {
           temail,
           password,
+          otp
         },
         {
           withCredentials: true,
@@ -92,7 +89,7 @@ const logIn = async () => {
         navigate("/");
       }, 2000);
     } catch (error) {
-      console.log(error)
+      console.log("NO ne")
       setError(error.response.data.message);
     }
 };
@@ -114,7 +111,7 @@ const logIn = async () => {
       const { message, ...rest } = data;
       setTimeout(() => {
         dispatch({ type: "LOGIN", payload: rest });
-        Cookies.set("user", JSON.stringify(rest), { expires: 1/24 });
+        Cookies.set("user", JSON.stringify(rest), { expires: 24 });
         navigate("/");
       }, 2000);
     } catch (error) {
@@ -178,27 +175,6 @@ const verifyOTP=async()=>{
             Sign Up
           </div>
         </div>
-        {state === "Log In" ? (
-          <div>
-            {/* <div className="social google">
-              <img src="/google.jpg" alt="google" />
-              <span onClick={() => signUpWithGoogle()} >Log in with Google</span>
-            </div>
-            <div className="social facebook">
-              <img src="/Facebook.png" alt="facebook" />
-              <span>Log in with Facebook</span>
-            </div> */}
-          </div>
-        ) : (
-          <div>
-            {/* <div className="social google"> */}
-            {/* <img src="/google.jpg" alt="google" /> */}
-            {/* <span onClick={() => signUpWithGoogle()}>Sign Up with Google</span> */}
-            {/* </div> */}
-
-          </div>
-        )}
-        {/* <span className="or">or</span> */}
         <form action="">
           {state === "Sign Up" ? (
             <div className="input">
@@ -224,27 +200,31 @@ const verifyOTP=async()=>{
               onChange={handleRegisterChange}
             />
           </div>
+          
+          {state==="Log In"?(
+            <>
           <div className="input">
-            <CiLock size={16} />
-            <input
-              type="password"
-              name="password"
-              placeholder="Enter password"
-              value={password}
-              onChange={handleRegisterChange}
-            />
-          </div>
-          {(cs)&&state==="Sign Up"?
-          <div className="input">
+          <CiLock size={16} />
           <input
-              type="number"
-              name="OTP"
-              placeholder="OTP"
-              value={otpv}
-              onChange={(e)=>{cotpv(e.target.value)}}
-            />
-          </div>
-        :<></>}
+            type="password"
+            name="password"
+            placeholder="Enter password"
+            value={password}
+            onChange={handleRegisterChange}
+          />
+        </div>
+          <div className="input">
+          <CiLock size={6} />
+          <input
+            type="otp"
+            name="otp"
+            placeholder="Enter otp on google authenticator"
+            value={otp}
+            onChange={handleRegisterChange}
+          />
+        </div> </>)
+        :
+        (<></>)}
         </form>
         {error && <span className="errorValidation" >{error}</span>}
         {success && <span className="RegisterSuccess" >{success}</span>}

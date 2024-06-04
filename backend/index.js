@@ -16,14 +16,14 @@ const Port = process.env.PORT || 5000;
 
 app.use(
     cors({
-      origin: '*',
+      origin: [process.env.REACT_APP_BACKEND_URL, "https://mail.goole.com"],
       //origin: ["https://allblogwebsiteapi.onrender.com", "https://allblogapp-project.vercel.app"],
       methods: "GET,POST,PUT,DELETE",
       credentials: true,
     })
 );
 
-//app.use(contentSecurityPolicy)
+app.use(contentSecurityPolicy)
 
 // Kết nối đến mongodb
 mongoose.set("strictQuery", false);

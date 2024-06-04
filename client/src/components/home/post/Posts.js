@@ -9,7 +9,7 @@ import { useDispatch, useSelector } from "react-redux";
 
 
 function Posts() {
-  const LIMIT = 6;
+  const LIMIT = 20;
   const [totalPosts, setTotalPost] = useState(0);
   const [activePage, setActivePage] = useState(1);
   const dispatch = useDispatch()

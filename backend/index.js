@@ -23,7 +23,7 @@ app.use(
     })
 );
 
-app.use(contentSecurityPolicy)
+//app.use(contentSecurityPolicy)
 
 // Kết nối đến mongodb
 mongoose.set("strictQuery", false);

@@ -115,7 +115,7 @@ function Navbar({ postpage }) {
         <div className="img">
           <img src="/OIG.svg" alt="HOME" />
         </div>
-        <span style={{ textDecoration: "underline" }} >Nhóm 10</span>
+        <span style={{ textDecoration: "underline" }} >Nhóm 21</span>
       </div>
       <div className="search">
         <div className="search_wrap">
